@@ -16,11 +16,11 @@ from transformer import Transformer_Encoder, ComplexLinear
 # from complexPyTorch.complexLayers import ComplexConv2d, ComplexLinear
 from data_generation import datasetGeneration
 from dataloader import training_dataloader
-from torchsummary import summary
+# from torchsummary import summary
 # from torchinfo import summary
 
 cfg = get_cfg()
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 

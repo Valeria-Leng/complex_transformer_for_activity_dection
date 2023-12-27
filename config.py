@@ -7,11 +7,11 @@ _CN = CN()
 _CN.EMx = 128
 _CN.EMy = 128
 _CN.EM = 128
-_CN.N = 100
+_CN.N = 50
 _CN.K = 2
-_CN.L = 12
+_CN.L = 8
 _CN.J = 0
-_CN.M = 64
+_CN.M = 32
 _CN.D = 500
 _CN.FF = 512
 _CN.txPower = 23 # dBm
@@ -29,6 +29,12 @@ _CN.TSIZE = 5000
 _CN.BNUM = 5000
 _CN.epoch = 100
 _CN.mask = 'None'
+_CN.filename = './complex_N50K2M32L8_Layer5_em128'
+_CN.path_checkpoint = _CN.filename+'/ckpt_best_99.pth'  # 断点路径
+_CN.pkl_path = 'training_data/data.pkl'
+
+_CN.test_flag = True
+_CN.complex = True
 
 def get_cfg():
     return _CN.clone()

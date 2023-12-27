@@ -7,7 +7,8 @@ import matplotlib.pyplot as plt
 import random
 import os
 import math
-from config import get_cfg
+# from config import get_cfg
+from config_test import get_cfg
 from tqdm import tqdm
 
 cfg = get_cfg()
@@ -81,14 +82,20 @@ def signalGeneration(H,cfg):
 
 def datasetGeneration(datasize, cfg):
     # N,J,L,matrx_Type,M,K,txPowerN,noisePowerN,location,channel,use_cov
-    if cfg.location=='uniform':
-        A_data = np.zeros([datasize, cfg.N, 2*cfg.L+1])
+    if cfg.complex:
+        if cfg.location=='uniform':
+            A_data = np.zeros([datasize, cfg.N, 2*cfg.L+1])
+        else:
+            A_data = np.zeros([datasize, cfg.N, cfg.L], dtype=complex)
+        if cfg.use_cov == True:
+            Cov_data = np.zeros([datasize, cfg.L*cfg.L], dtype=complex)
+        else:
+            Cov_data = np.zeros([datasize, 2*cfg.L*cfg.M])
     else:
-        A_data = np.zeros([datasize, cfg.N, cfg.L], dtype=complex)
-    if cfg.use_cov == True:
-        Cov_data = np.zeros([datasize, cfg.L*cfg.L], dtype=complex)
-    else:
-        Cov_data = np.zeros([datasize, 2*cfg.L*cfg.M])
+        A_data = np.zeros([datasize, cfg.N, 2*cfg.L])
+        Cov_data = np.zeros([datasize, 2*cfg.L*cfg.L])
+
+
     supp_data = np.zeros([datasize, cfg.N])
 
     for mc in range(datasize):
@@ -141,18 +148,32 @@ def datasetGeneration(datasize, cfg):
 
 
         # Cov_data[mc,:] = np.hstack((np.real(Cov), np.imag(Cov)))
-        Cov_data[mc,:] = Cov
+        
         supp_data[mc,:] = supp
 
-        if cfg.location=='uniform':
-            A_data[mc,:,:-1] = np.vstack((np.real(A), np.imag(A))).T
-            A_data[mc,:,-1] = np.squeeze(distance)
-        else: #control
-            # A_data[mc,:,:] = np.vstack((np.real(A), np.imag(A))).T #[real imag]
-            A_data[mc,:,:] = A.T #why A.T
+        # if cfg.location=='uniform':
+        #     A_data[mc,:,:-1] = np.vstack((np.real(A), np.imag(A))).T
+        #     A_data[mc,:,-1] = np.squeeze(distance)
+        # else: #control
+        #     # A_data[mc,:,:] = np.vstack((np.real(A), np.imag(A))).T #[real imag]
+        #     A_data[mc,:,:] = A.T #why A.T
     # print(Cov_data.imag)
+        if cfg.complex:
+            A_data[mc,:,:] = A.T 
+            Cov_data[mc,:] = Cov
+            dA = torch.from_numpy(A_data).type(torch.complex64)
+            dCov = torch.from_numpy(Cov_data).type(torch.complex64)
+            dsupp = torch.FloatTensor(supp_data)
+        else:
+            A_data[mc,:,:] = np.vstack((np.real(A), np.imag(A))).T #[real imag]
+            Cov_data[mc,:] = np.hstack((np.real(Cov), np.imag(Cov)))
+            dA = torch.FloatTensor(A_data)
+            dCov = torch.FloatTensor(Cov_data)
+            dsupp = torch.FloatTensor(supp_data)
+    # # print(vCov.imag)
 
-    return A_data, Cov_data, supp_data
+
+    return dA, dCov, dsupp #np format
 
 if __name__=='__main__':
     # vA, vCov, vsupp = datasetGeneration(cfg.VSIZE, cfg)
@@ -161,13 +182,13 @@ if __name__=='__main__':
     dCov = []
     dsupp = []
     for i in tqdm(range(cfg.BNUM)):
-        bA, bCov, bsupp = datasetGeneration(cfg.BSIZE, cfg)
+        bA, bCov, bsupp = datasetGeneration(cfg.BSIZE, cfg) #return data in numpy array format
         dA.append(bA)
         dCov.append(bCov)
         dsupp.append(bsupp)
     data_list = list(zip(dA, dCov, dsupp))
-
-    with open('training_data/data.pkl', 'wb') as f:
+    #save as pkl
+    with open(cfg.pkl_path, 'wb') as f:
         pickle.dump(data_list, f)
     print('==========> The training data has been saved!')
     # np.save('training_data/data.npy', data)
