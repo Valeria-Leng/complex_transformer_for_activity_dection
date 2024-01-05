@@ -4,7 +4,7 @@ from complexPyTorch.complexLayers import ComplexConv2d, ComplexLinear
 from complexPyTorch.complexLayers import ComplexDropout, NaiveComplexBatchNorm2d
 from complexPyTorch.complexLayers import ComplexBatchNorm1d
 from complexPyTorch.complexFunctions import complex_relu
-from torch.nn.functional import softmax, relu
+from torch.nn.functional import softmax, relu, sigmoid
 
 class ComplexConv1d(nn.Module):
 
@@ -21,9 +21,23 @@ class ComplexConv1d(nn.Module):
         out_i = self.conv_r(input_i)+self.conv_i(input_r)
 
         return out_r + 1j * out_i
-    
+
+
+# class ComplexLinear(nn.Module):
+#     def __init__(self, in_features, out_features):
+#         super(ComplexLinear, self).__init__()
+#         self.fc_r = nn.Linear(in_features, out_features)
+#         self.fc_i = nn.Linear(in_features, out_features)
+
+#     def forward(self, input):
+#         dim = input.shape[0]
+#         n_input = torch.cat((input.real, input.imag))
+#         out_r = self.fc_r(n_input) #[rW_r   i_W_r]
+#         out_i = self.fc_i(n_input) #[rW_i   i_W_i]
+#         return (out_r[:dim]-out_i[dim:]) + 1j*(out_r[dim:]+out_i[:dim])
+
 class Complex_Transformer(nn.Module):
-    def __init__(self,  y_dim = 64, x_dim= 64, embed_dim=64, out_dim=20, node_dim=8, num_heads=4, device='cuda'):
+    def __init__(self,  y_dim = 64, x_dim= 64, embed_dim=64, out_dim=100, node_dim=12, num_heads=4, device='cuda'):
         super().__init__()
         # # self.dlconv = ComplexConv1d(in_channels=1, out_channels=8, kernel_size=3, padding=1)
         # self.dlconv1 = ComplexConv1d(in_channels=1, out_channels=2, kernel_size=6, stride=2, padding=2)
@@ -42,7 +56,7 @@ class Complex_Transformer(nn.Module):
         #A: B,C,L = 256, 20, 8 
         #x: B,L = 256, 64
         #output: 256, 20
-        x = self.cov(x).unsqueeze(1) #256, 64 -> 256, 1, 64 
+        # x = self.cov(x).unsqueeze(1) #256, 64 -> 256, 1, 64 
         A, x = self.usr1(A, x)     #256, 20, 64  #256, 1, 64  
         A, x = self.usr2(A, x)    #256, 20, 64  #256, 1, 64
         out = self.out(A, x)  # B,20
@@ -129,10 +143,10 @@ class FeeaforwardNN(nn.Module):
     def forward(self, src):
         #####################
         # fc1 --> relu --> fc1
-        src = self.fc1(src) #128, 4, 320
+        src = self.fc1(src) #128, 4, 256
         src = complex_relu(src)
         # src = self.dropout(src)
-        src = self.fc2(src)
+        src = self.fc2(src) #128, 4, 64
         return src
         #####################        
 
@@ -157,10 +171,10 @@ class attention(nn.Module):
         self.pro_v = ComplexLinear(self.embed_dim, self.embed_dim)
         self.out_proj = ComplexLinear(embed_dim, embed_dim)
 
-    def forward(self, q, y): #256, 20, 64 #256, 1, 64
+    def forward(self, q, y): #256, 100, 64 #256, 1, 64
         h = q
-        B, n_query, input_dim = q.size() #256, 20, 64
-        # n_query = q.size(1) #20
+        B, n_query, input_dim = q.size() #256, 100, 64
+        # n_query = q.size(1) #100
         y_dim = y.size(2) #64
         # assert q.size(0) == B
         # assert q.size(2) == input_dim #64
@@ -183,27 +197,31 @@ class attention(nn.Module):
         V = torch.cat((V,Vy), dim=-2).view(B, n_query+1, self.num_heads, -1).contiguous().permute(2, 0, 1, 3)
 
         # Calculate compatibility (n_heads, batch_size, n_query, graph_size)
-        attn_weights = self.scaling * torch.matmul(Q, K.transpose(-1, -2)) #4, 256, 21, 21
+        attn_weights = self.scaling * torch.matmul(Q, torch.conj_physical(K).transpose(-1, -2)) #4, 256, 101, 101
         
+
         #softmax
-        attn_weights = self.softmax_real(attn_weights) #4, 256, 21, 21 dim=-1
-        attn = torch.matmul(attn_weights, V) #4, 256, 21, 16 
+        attn_weights = self.softmax_real(attn_weights) #4, 256, 101, 101 dim=-1
+        attn = torch.matmul(attn_weights, V) #4, 256, 101, 16 
         heads_all = attn.permute(1, 2, 0, 3).contiguous().view(B, -1, self.num_heads*self.key_dim)
-        heads_all = self.out_proj(heads_all) #256, 21, 64 
+        heads_all = self.out_proj(heads_all) #256, 101, 64 
         if heads_all.size(1) == (n_query+1):
-            heads = heads_all[:, :-1,:]   #256, 20, 64
+            heads = heads_all[:, :-1,:]   #256, 100, 64
             heads_y = heads_all[:,-1:,:]  #256, 1, 64
-            return heads, heads_y #256, 20, 64  #256, 1, 64
+            return heads, heads_y #256, 100, 64  #256, 1, 64
         else:
             # print(heads_all.shape)
             return heads_all
         ###########################################
     def softmax_real(self, input, attn_mask=None):
-        real = torch.real(input)
+        # if real:
+        # real = torch.real(input)
+        # else:
+        real = 10*torch.cos(input.angle())
         if attn_mask is not None:
             real += attn_mask.unsqueeze(0).real.to(self.device)
         # abso[abso == float('inf')] = -abso[abso == float('inf')]
-        return softmax(real, dim=2).type(torch.complex64)
+        return softmax(real, dim=-1).type(torch.complex64) ############
     
 class Transformer_Encoder(nn.Module):
     def __init__(self, embed_dim, A_dim=64, node_dim=None, num_heads=4, device='cuda'):
@@ -215,13 +233,13 @@ class Transformer_Encoder(nn.Module):
         self.layer_norms = nn.ModuleList([Complex_LayerNorm(embed_dim) for _ in range(2)])
         self.device = device
     def forward(self, A, x):
-        #A: 256, 20, 8 
+        #A: 256, 100, 12
         #x: 256, 1, 64
         # B, C, L = x.shape 
-        h = self.init_embed(A.view(-1, A.size(-1))).view(*A.size()[:2], -1) if self.init_embed is not None else A #256*20, 8->64  256, 20, 64
+        h = self.init_embed(A.view(-1, A.size(-1))).view(*A.size()[:2], -1) if self.init_embed is not None else A #256*100, 12->64  256, 100, 64
         residual_x = x #256, 1, 64
-        residual_h = h #256, 20, 64
-        h, x = self.attention(h, x) #256, 20, 64 #256, 1, 64
+        residual_h = h #256, 100, 64
+        h, x = self.attention(h, x) #256, 100, 64 #256, 1, 64
         x += residual_x 
         h += residual_h 
         h = self.layer_norms[0](h)
@@ -230,7 +248,7 @@ class Transformer_Encoder(nn.Module):
         x = self.FeedforwardNN(x) + x 
         h = self.layer_norms[1](h)
         x = self.layer_norms[1](x)
-        return h, x  # (batch_size, graph_size, embed_dim) # (batch_size, 1, y_dim)  #256, 20, 64  #256, 1, 64
+        return h, x  # (batch_size, graph_size, embed_dim) # (batch_size, 1, y_dim)  #256, 100, 64  #256, 1, 64
 
 class Logit(nn.Module):
     def __init__(
@@ -247,7 +265,7 @@ class Logit(nn.Module):
         self.pro_k = ComplexLinear(self.embed_dim, self.embed_dim)
         self.pro_v = ComplexLinear(self.embed_dim, self.embed_dim)
 
-        self.dense = nn.Linear(20, 20)
+        # self.dense = nn.Linear(20, 20)
 
         self.scaling = embed_dim ** -0.5  #  8 See Attention is all you need
 
@@ -270,23 +288,33 @@ class Logit(nn.Module):
    
 
         # Calculate compatibility (1, batch_size, n_query, graph_size)
-        attn = self.scaling * (torch.matmul(Q, K.transpose(-1, -2)))
+        attn = self.scaling * (torch.matmul(Q, torch.conj_physical(K).transpose(-1, -2)))
         compatibility = 10*torch.tanh(attn.abs()) * torch.exp(-1j*attn.angle()) #1, B, 1, 20
         # compatibility = relu(attn.abs()) * torch.exp(-1j*attn.angle())
-        compatibility = attn.abs() #1, B, 1, 20
+        # compatibility = attn.abs() #1, B, 1, 20
 
-        out = self.dense(compatibility).squeeze(2).squeeze(0) #B, 20
+        out = self.C2R(compatibility.squeeze(2).squeeze(0)) #B, 20
 
         return out
-class Out(nn.Module):
+    
+
+    def C2R(self, input):
+        power = torch.square(sigmoid(input.real)) + torch.square(sigmoid(input.imag))
+        clipped_power = torch.clip(power,0, 1)
+
+        return clipped_power
+
+
+class Complex_Out(nn.Module):
     def __init__( self, num_heads, embed_dim, y_dim, x_dim, device='cuda'):
-        super(Out, self).__init__()
+        super(Complex_Out, self).__init__()
         self.glimpse = attention(
             num_heads=num_heads, input_dim=x_dim, y_dim=y_dim, embed_dim=embed_dim, Glimpse=1)
         self.logit = Logit(q_dim=y_dim, k_dim=x_dim, embed_dim=embed_dim) 
 
     def forward(self, x, y):
-        y = self.glimpse(x,y)
+        #x: 256, 100, 64  #y: 256, 1, 64
+        y = self.glimpse(x,y) 
         out = self.logit(y,x)
         return out       
      
@@ -312,8 +340,8 @@ if __name__=='__main__':
      #A: B,C,L = 256, 20, 8 
         #x: B,L = 256, 64
         #output: 256, 20
-    A = torch.tensor(torch.rand((256, 20, 8), dtype=torch.complex64)).cuda()
-    x = torch.tensor(torch.rand((256, 64), dtype=torch.complex64)).cuda()
+    A = torch.tensor(torch.rand((256, 100, 12), dtype=torch.complex64)).cuda() #256, 100, 64  #256, 1, 64
+    x = torch.tensor(torch.rand((256, 1, 64), dtype=torch.complex64)).cuda()
     # print(10*torch.tanh(A))
     out = encoder(A, x)
-    print(out.shape, out.dtype)
+    print(out.shape, out)
