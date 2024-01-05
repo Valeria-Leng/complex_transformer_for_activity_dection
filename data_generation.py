@@ -7,11 +7,14 @@ import matplotlib.pyplot as plt
 import random
 import os
 import math
-# from config import get_cfg
-from config_test import get_cfg
+from config import get_cfg
 from tqdm import tqdm
 
 cfg = get_cfg()
+# if cfg.test_flag:
+#     from config_test import get_cfg
+#     cfg = get_cfg()
+
 sigma2s = np.ones([cfg.N,1])
 # print(cfg)
 
